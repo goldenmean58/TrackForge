@@ -1,0 +1,73 @@
+import type { ProbeResult } from './types'
+
+export const demoFilePath = '/Users/demo/Movies/launch-film-master.mp4'
+
+export const demoMedia: ProbeResult = {
+  format: {
+    filename: demoFilePath,
+    format_name: 'mov,mp4,m4a,3gp,3g2,mj2',
+    duration: '384.72',
+    size: '1972374528',
+    bit_rate: '41012093',
+    tags: { title: 'Launch Film Master' },
+  },
+  streams: [
+    {
+      index: 0,
+      codec_type: 'video',
+      codec_name: 'h264',
+      profile: 'High',
+      width: 3840,
+      height: 2160,
+      avg_frame_rate: '25/1',
+      bit_rate: '38200000',
+      tags: { language: 'und', handler_name: 'Main Picture' },
+      disposition: { default: 1 },
+    },
+    {
+      index: 1,
+      codec_type: 'video',
+      codec_name: 'h264',
+      profile: 'High',
+      width: 1920,
+      height: 1080,
+      avg_frame_rate: '25/1',
+      bit_rate: '8200000',
+      tags: { language: 'und', handler_name: 'Clean Feed' },
+      disposition: { default: 0 },
+    },
+    {
+      index: 2,
+      codec_type: 'audio',
+      codec_name: 'aac',
+      sample_rate: '48000',
+      channels: 2,
+      channel_layout: 'stereo',
+      bit_rate: '320000',
+      tags: { language: 'zho', title: '中文混音' },
+      disposition: { default: 1 },
+    },
+    {
+      index: 3,
+      codec_type: 'audio',
+      codec_name: 'aac',
+      sample_rate: '48000',
+      channels: 6,
+      channel_layout: '5.1',
+      bit_rate: '768000',
+      tags: { language: 'eng', title: 'English 5.1' },
+      disposition: { default: 0 },
+    },
+    {
+      index: 4,
+      codec_type: 'audio',
+      codec_name: 'aac',
+      sample_rate: '48000',
+      channels: 2,
+      channel_layout: 'stereo',
+      bit_rate: '256000',
+      tags: { language: 'jpn', title: '日本語' },
+      disposition: { default: 0 },
+    },
+  ],
+}
