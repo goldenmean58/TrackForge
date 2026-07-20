@@ -13,6 +13,8 @@ import {
   Languages,
   LoaderCircle,
   Music2,
+  Pause,
+  Play,
   Plus,
   RotateCcw,
   Sparkles,
@@ -64,6 +66,16 @@ function formatDuration(raw?: string | number): string {
     : `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
+function formatPlaybackTime(raw?: number): string {
+  const total = Math.max(0, Math.floor(raw || 0))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
 function formatBitrate(raw?: string): string {
   const value = Number(raw)
   if (!value) return '未知码率'
@@ -100,6 +112,7 @@ function App() {
   const [progress, setProgress] = useState(0)
   const [outputPath, setOutputPath] = useState('')
   const [error, setError] = useState('')
+  const [activeAudioIndex, setActiveAudioIndex] = useState<number | null>(null)
   const dragDepth = useRef(0)
 
   const videoStreams = media?.streams.filter((stream) => stream.codec_type === 'video') ?? []
@@ -120,6 +133,7 @@ function App() {
     setError('')
     setJobState('idle')
     setOutputPath('')
+    setActiveAudioIndex(null)
     try {
       const result = await window.trackforge.probeMedia(path)
       if (result.streams.length === 0) throw new Error('没有找到视频或音频轨道。')
@@ -164,6 +178,7 @@ function App() {
 
   const startMux = async () => {
     if (!media || selectedVideoCount === 0 || !window.trackforge) return
+    setActiveAudioIndex(null)
     const path = await window.trackforge.chooseOutput(filePath)
     if (!path) return
     const id = crypto.randomUUID()
@@ -288,6 +303,10 @@ function App() {
               onToggle={toggleStream}
               onSelectAll={(checked) => selectGroup(videoStreams, checked)}
               disabled={jobState === 'running'}
+              filePath={filePath}
+              durationSeconds={Number(media.format.duration) || 0}
+              activeAudioIndex={activeAudioIndex}
+              onActivateAudio={setActiveAudioIndex}
             />
             <TrackGroup
               title="音频轨道"
@@ -297,6 +316,10 @@ function App() {
               onToggle={toggleStream}
               onSelectAll={(checked) => selectGroup(audioStreams, checked)}
               disabled={jobState === 'running'}
+              filePath={filePath}
+              durationSeconds={Number(media.format.duration) || 0}
+              activeAudioIndex={activeAudioIndex}
+              onActivateAudio={setActiveAudioIndex}
             />
           </section>
 
@@ -361,9 +384,13 @@ type TrackGroupProps = {
   onToggle: (index: number) => void
   onSelectAll: (checked: boolean) => void
   disabled: boolean
+  filePath: string
+  durationSeconds: number
+  activeAudioIndex: number | null
+  onActivateAudio: (index: number | null) => void
 }
 
-function TrackGroup({ title, icon, streams, selected, onToggle, onSelectAll, disabled }: TrackGroupProps) {
+function TrackGroup({ title, icon, streams, selected, onToggle, onSelectAll, disabled, filePath, durationSeconds, activeAudioIndex, onActivateAudio }: TrackGroupProps) {
   const allSelected = streams.length > 0 && streams.every((stream) => selected.has(stream.index))
   return (
     <div className="track-group">
@@ -375,23 +402,39 @@ function TrackGroup({ title, icon, streams, selected, onToggle, onSelectAll, dis
         <div className="group-empty">未检测到{title}</div>
       ) : streams.map((stream, index) => (
         <TrackRow
-          key={stream.index}
+          key={`${filePath}:${stream.index}`}
           stream={stream}
           ordinal={index + 1}
           checked={selected.has(stream.index)}
           onToggle={() => onToggle(stream.index)}
           disabled={disabled}
+          filePath={filePath}
+          durationSeconds={Number(stream.duration) || durationSeconds}
+          isActiveAudio={activeAudioIndex === stream.index}
+          onActivateAudio={onActivateAudio}
         />
       ))}
     </div>
   )
 }
 
-function TrackRow({ stream, ordinal, checked, onToggle, disabled }: { stream: MediaStream; ordinal: number; checked: boolean; onToggle: () => void; disabled: boolean }) {
+type TrackRowProps = {
+  stream: MediaStream
+  ordinal: number
+  checked: boolean
+  onToggle: () => void
+  disabled: boolean
+  filePath: string
+  durationSeconds: number
+  isActiveAudio: boolean
+  onActivateAudio: (index: number | null) => void
+}
+
+function TrackRow({ stream, ordinal, checked, onToggle, disabled, filePath, durationSeconds, isActiveAudio, onActivateAudio }: TrackRowProps) {
   const isVideo = stream.codec_type === 'video'
   return (
-    <label className={`track-row ${checked ? 'selected' : ''} ${disabled ? 'disabled' : ''}`}>
-      <input type="checkbox" checked={checked} onChange={onToggle} disabled={disabled} />
+    <div className={`track-row ${!isVideo ? 'has-preview' : ''} ${checked ? 'selected' : ''} ${disabled ? 'disabled' : ''}`} onClick={() => !disabled && onToggle()}>
+      <input className="track-select-input" type="checkbox" checked={checked} onChange={onToggle} onClick={(event) => event.stopPropagation()} disabled={disabled} aria-label={`${checked ? '取消选择' : '选择'}${trackTitle(stream, ordinal)}`} />
       <span className="custom-check">{checked && <Check size={14} strokeWidth={3} />}</span>
       <span className={`track-type-icon ${isVideo ? 'video' : 'audio'}`}>{isVideo ? <Video size={17} /> : <Music2 size={17} />}</span>
       <span className="track-main">
@@ -412,7 +455,164 @@ function TrackRow({ stream, ordinal, checked, onToggle, disabled }: { stream: Me
         {!isVideo && <span className="language"><Languages size={13} />{displayLanguage(stream)}</span>}
         <span>{formatBitrate(stream.bit_rate)}</span>
       </span>
-    </label>
+      {!isVideo && (
+        <AudioPreview
+          filePath={filePath}
+          streamIndex={stream.index}
+          durationSeconds={durationSeconds}
+          isActive={isActiveAudio}
+          onActivate={onActivateAudio}
+          disabled={disabled}
+        />
+      )}
+    </div>
+  )
+}
+
+type AudioPreviewProps = {
+  filePath: string
+  streamIndex: number
+  durationSeconds: number
+  isActive: boolean
+  onActivate: (index: number | null) => void
+  disabled: boolean
+}
+
+function AudioPreview({ filePath, streamIndex, durationSeconds, isActive, onActivate, disabled }: AudioPreviewProps) {
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const preparationRef = useRef<Promise<void> | null>(null)
+  const pendingPlayRef = useRef(false)
+  const pendingSeekRef = useRef<number | null>(null)
+  const [source, setSource] = useState('')
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(durationSeconds)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [previewError, setPreviewError] = useState('')
+
+  useEffect(() => {
+    if (isActive) return
+    pendingPlayRef.current = false
+    audioRef.current?.pause()
+    setIsPlaying(false)
+  }, [isActive])
+
+  useEffect(() => () => audioRef.current?.pause(), [])
+
+  const prepare = async () => {
+    if (source || preparationRef.current) return preparationRef.current
+    if (!window.trackforge) {
+      setPreviewError('请在桌面应用中试听。')
+      return
+    }
+    setIsLoading(true)
+    setPreviewError('')
+    const task = window.trackforge.prepareAudioPreview(filePath, streamIndex)
+      .then((preview) => {
+        setSource(preview.url)
+        if (preview.durationSeconds > 0) setDuration(preview.durationSeconds)
+      })
+      .catch((cause) => {
+        const message = cause instanceof Error
+          ? cause.message.replace(/^Error invoking remote method '[^']+': Error: /, '')
+          : '无法准备试听。'
+        setPreviewError(message)
+        pendingPlayRef.current = false
+        onActivate(null)
+      })
+      .finally(() => {
+        setIsLoading(false)
+        preparationRef.current = null
+      })
+    preparationRef.current = task
+    return task
+  }
+
+  const play = async () => {
+    if (disabled) return
+    if (isPlaying) {
+      audioRef.current?.pause()
+      onActivate(null)
+      return
+    }
+    pendingPlayRef.current = true
+    onActivate(streamIndex)
+    if (source && audioRef.current) {
+      pendingPlayRef.current = false
+      if (audioRef.current.ended) {
+        audioRef.current.currentTime = 0
+        setCurrentTime(0)
+      }
+      await audioRef.current.play().catch(() => setPreviewError('无法播放该音频轨道。'))
+      return
+    }
+    await prepare()
+  }
+
+  const seek = (value: number) => {
+    const next = Math.min(Math.max(0, value), duration || durationSeconds)
+    setCurrentTime(next)
+    pendingSeekRef.current = next
+    if (audioRef.current && source) {
+      audioRef.current.currentTime = next
+      pendingSeekRef.current = null
+    } else {
+      void prepare()
+    }
+  }
+
+  const onCanPlay = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (pendingSeekRef.current !== null) {
+      audio.currentTime = pendingSeekRef.current
+      pendingSeekRef.current = null
+    }
+    if (pendingPlayRef.current) {
+      pendingPlayRef.current = false
+      onActivate(streamIndex)
+      void audio.play().catch(() => setPreviewError('无法播放该音频轨道。'))
+    }
+  }
+
+  const maximum = Math.max(duration || durationSeconds, 0.01)
+  const percentage = Math.min(100, (currentTime / maximum) * 100)
+
+  return (
+    <div className="audio-preview" onClick={(event) => event.stopPropagation()}>
+      <audio
+        ref={audioRef}
+        src={source || undefined}
+        preload="metadata"
+        onCanPlay={onCanPlay}
+        onLoadedMetadata={(event) => {
+          if (Number.isFinite(event.currentTarget.duration)) setDuration(event.currentTarget.duration)
+        }}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onEnded={() => { setIsPlaying(false); onActivate(null) }}
+        onError={() => source && setPreviewError('无法播放该音频轨道。')}
+      />
+      <button className="audio-play-button" onClick={() => void play()} disabled={disabled || isLoading} title={isPlaying ? '暂停试听' : '播放试听'} aria-label={isPlaying ? '暂停试听' : '播放试听'}>
+        {isLoading ? <LoaderCircle className="spin" size={14} /> : isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+      </button>
+      <span className="audio-time current">{formatPlaybackTime(currentTime)}</span>
+      <input
+        className="audio-scrubber"
+        type="range"
+        min="0"
+        max={maximum}
+        step="0.05"
+        value={Math.min(currentTime, maximum)}
+        onChange={(event) => seek(Number(event.target.value))}
+        onPointerDown={(event) => event.stopPropagation()}
+        style={{ '--audio-progress': `${percentage}%` } as React.CSSProperties}
+        aria-label="试听进度"
+      />
+      <span className="audio-time">{formatPlaybackTime(maximum)}</span>
+      {previewError && <span className="audio-preview-error" title={previewError}><CircleAlert size={14} /></span>}
+    </div>
   )
 }
 

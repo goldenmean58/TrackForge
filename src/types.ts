@@ -46,6 +46,10 @@ export type TrackForgeApi = {
   chooseOutput: (inputPath: string) => Promise<string | null>
   getPathForFile: (file: File) => string
   probeMedia: (filePath: string) => Promise<ProbeResult>
+  prepareAudioPreview: (filePath: string, streamIndex: number) => Promise<{
+    url: string
+    durationSeconds: number
+  }>
   startMux: (request: MuxRequest) => Promise<{ outputPath: string }>
   cancelMux: (jobId: string) => Promise<boolean>
   showItem: (filePath: string) => Promise<void>

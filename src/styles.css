@@ -110,10 +110,11 @@ button:focus-visible, input:focus-visible + .custom-check { outline: 3px solid r
 .track-group-header button:hover { text-decoration: underline; }
 .track-group-header button:disabled { opacity: .5; cursor: default; }
 .track-row { position: relative; min-height: 74px; display: grid; grid-template-columns: 20px 36px minmax(160px, 1fr) auto; align-items: center; gap: 12px; margin-bottom: 8px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 7px; background: white; cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s; }
+.track-row.has-preview { min-height: 108px; row-gap: 9px; }
 .track-row:hover { border-color: #bfc8c1; box-shadow: 0 2px 8px rgba(35, 50, 43, .05); }
 .track-row.selected { border-color: #9fc8b6; background: #fcfffd; }
 .track-row.disabled { opacity: .72; cursor: default; }
-.track-row input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.track-select-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .custom-check { width: 19px; height: 19px; display: grid; place-items: center; border: 1.5px solid #b7bdb8; border-radius: 5px; color: white; background: white; }
 .track-row.selected .custom-check { border-color: var(--accent); background: var(--accent); }
 .track-type-icon { width: 36px; height: 36px; }
@@ -126,6 +127,20 @@ button:focus-visible, input:focus-visible + .custom-check { outline: 3px solid r
 .track-side { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; color: var(--muted); font-size: 9px; white-space: nowrap; }
 .language { display: flex; align-items: center; gap: 4px; color: var(--muted-strong); font-size: 10px; font-weight: 500; }
 .group-empty { display: grid; place-items: center; min-height: 64px; border: 1px dashed var(--line-strong); border-radius: 7px; color: var(--muted); font-size: 11px; }
+.audio-preview { grid-column: 3 / -1; width: 100%; min-width: 0; display: grid; grid-template-columns: 28px 34px minmax(70px, 1fr) 34px 16px; align-items: center; gap: 7px; padding-top: 8px; border-top: 1px solid #e8ebe7; cursor: default; }
+.audio-preview audio { display: none; }
+.audio-play-button { width: 27px; height: 27px; display: grid; place-items: center; padding: 0; border: 1px solid #bfd4ca; border-radius: 50%; color: var(--accent); background: #f5faf8; cursor: pointer; }
+.audio-play-button:hover { border-color: var(--accent); background: var(--accent-soft); }
+.audio-play-button:disabled { color: #9ca49f; border-color: var(--line); background: #f3f4f2; cursor: wait; }
+.audio-play-button svg { margin-left: 1px; }
+.audio-play-button svg.lucide-pause, .audio-play-button svg.lucide-loader-circle { margin-left: 0; }
+.audio-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 9px; text-align: right; white-space: nowrap; }
+.audio-time.current { text-align: left; }
+.audio-scrubber { --audio-progress: 0%; width: 100%; height: 16px; margin: 0; padding: 0; border: 0; outline: none; appearance: none; background: transparent; cursor: pointer; }
+.audio-scrubber::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--accent) 0 var(--audio-progress), #dfe4e0 var(--audio-progress) 100%); }
+.audio-scrubber::-webkit-slider-thumb { width: 12px; height: 12px; margin-top: -4px; border: 2px solid white; border-radius: 50%; appearance: none; background: var(--accent); box-shadow: 0 0 0 1px #9bb8ab; }
+.audio-scrubber:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(22, 124, 90, .22); }
+.audio-preview-error { display: grid; place-items: center; color: var(--danger); cursor: help; }
 
 .output-format { display: flex; align-items: center; gap: 11px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: white; }
 .format-icon { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 6px; color: white; background: #3e4642; font-size: 9px; font-weight: 700; }
@@ -189,6 +204,7 @@ button:focus-visible, input:focus-visible + .custom-check { outline: 3px solid r
   .tracks-panel { padding-inline: 24px; }
   .track-row { grid-template-columns: 20px 34px minmax(140px, 1fr); }
   .track-side { grid-column: 3; flex-direction: row; justify-content: space-between; width: 100%; }
+  .audio-preview { grid-column: 3; }
 }
 
 @media (max-width: 800px) {
@@ -211,6 +227,7 @@ button:focus-visible, input:focus-visible + .custom-check { outline: 3px solid r
   .source-preview { max-width: 220px; margin-bottom: 15px; }
   .track-row { grid-template-columns: 20px 34px minmax(0, 1fr); gap: 9px; padding: 10px; }
   .track-side { grid-column: 3; }
+  .audio-preview { grid-template-columns: 28px 30px minmax(50px, 1fr) 30px 16px; gap: 5px; }
   .drop-zone { min-height: 370px; padding: 35px 20px; }
   .empty-details { gap: 10px; }
 }

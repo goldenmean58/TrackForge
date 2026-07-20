@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('trackforge', {
   chooseOutput: (inputPath: string) => ipcRenderer.invoke('file:choose-output', inputPath),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   probeMedia: (filePath: string) => ipcRenderer.invoke('media:probe', filePath),
+  prepareAudioPreview: (filePath: string, streamIndex: number) =>
+    ipcRenderer.invoke('media:prepare-audio-preview', filePath, streamIndex),
   startMux: (request: unknown) => ipcRenderer.invoke('mux:start', request),
   cancelMux: (jobId: string) => ipcRenderer.invoke('mux:cancel', jobId),
   showItem: (filePath: string) => ipcRenderer.invoke('shell:show-item', filePath),

@@ -1,7 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import path from 'node:path'
 import fs from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import ffmpegPath from 'ffmpeg-static'
 import ffprobe from '@ffprobe-installer/ffprobe'
 
@@ -44,6 +47,27 @@ type MuxRequest = {
 }
 
 const jobs = new Map<string, ChildProcessWithoutNullStreams>()
+const previewFiles = new Map<string, string>()
+const previewTasks = new Map<string, Promise<AudioPreview>>()
+const previewProcesses = new Set<ChildProcessWithoutNullStreams>()
+let previewDirectory = ''
+
+type AudioPreview = {
+  url: string
+  durationSeconds: number
+}
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'trackforge-media',
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    stream: true,
+  },
+}])
+
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
 function unpackedBinary(binaryPath: string): string {
   return app.isPackaged ? binaryPath.replace('app.asar', 'app.asar.unpacked') : binaryPath
@@ -92,6 +116,111 @@ async function probeMedia(filePath: string): Promise<ProbeResult> {
   })
 }
 
+async function createAudioPreview(filePath: string, streamIndex: number): Promise<AudioPreview> {
+  const binaryPath = ffmpegPath
+  if (!binaryPath) throw new Error('当前平台没有可用的 FFmpeg。')
+  if (!Number.isInteger(streamIndex) || streamIndex < 0) throw new Error('音频轨道无效。')
+
+  const inputPath = validateMp4(filePath)
+  const [media, sourceStat] = await Promise.all([probeMedia(inputPath), fs.stat(inputPath)])
+  const stream = media.streams.find((item) => item.index === streamIndex && item.codec_type === 'audio')
+  if (!stream) throw new Error('找不到该音频轨道，请重新载入文件。')
+
+  const token = createHash('sha256')
+    .update(`${inputPath}:${sourceStat.size}:${sourceStat.mtimeMs}:${streamIndex}`)
+    .digest('hex')
+    .slice(0, 32)
+  const existingTask = previewTasks.get(token)
+  if (existingTask) return existingTask
+
+  const outputPath = path.join(previewDirectory, `${token}.m4a`)
+  const result = async (): Promise<AudioPreview> => {
+    const existingFile = await fs.stat(outputPath).catch(() => null)
+    if (!existingFile || existingFile.size === 0) {
+      await fs.mkdir(previewDirectory, { recursive: true })
+      const canCopy = stream.codec_name === 'aac'
+      const args = [
+        '-y',
+        '-i', inputPath,
+        '-map', `0:${streamIndex}`,
+        '-vn',
+        ...(canCopy ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '192k']),
+        '-movflags', '+faststart',
+        outputPath,
+      ]
+
+      await new Promise<void>((resolve, reject) => {
+        const process = spawn(unpackedBinary(binaryPath), args)
+        previewProcesses.add(process)
+        let stderr = ''
+        process.stderr.on('data', (chunk) => { stderr = (stderr + chunk.toString()).slice(-8000) })
+        process.on('error', (error) => reject(new Error(`无法启动 FFmpeg：${error.message}`)))
+        process.on('close', async (code) => {
+          previewProcesses.delete(process)
+          if (code === 0) {
+            resolve()
+            return
+          }
+          await fs.rm(outputPath, { force: true }).catch(() => undefined)
+          const detail = stderr.split(/\r?\n/).filter(Boolean).slice(-3).join('\n')
+          reject(new Error(detail || '无法准备该音频轨道。'))
+        })
+      })
+    }
+
+    previewFiles.set(token, outputPath)
+    return {
+      url: `trackforge-media://audio/${token}`,
+      durationSeconds: Number(stream.duration || media.format.duration) || 0,
+    }
+  }
+
+  const task = result().finally(() => previewTasks.delete(token))
+  previewTasks.set(token, task)
+  return task
+}
+
+async function serveAudioPreview(request: Request): Promise<Response> {
+  const token = new URL(request.url).pathname.slice(1)
+  const filePath = previewFiles.get(token)
+  if (!filePath) return new Response('Not found', { status: 404 })
+
+  const stat = await fs.stat(filePath).catch(() => null)
+  if (!stat) return new Response('Not found', { status: 404 })
+  const range = request.headers.get('range')
+  let start = 0
+  let end = stat.size - 1
+  let status = 200
+
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range)
+    if (!match) {
+      return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } })
+    }
+    if (match[1]) start = Number(match[1])
+    if (match[2]) end = Number(match[2])
+    if (!match[1] && match[2]) start = Math.max(0, stat.size - Number(match[2]))
+    end = Math.min(end, stat.size - 1)
+    if (start > end || start >= stat.size) {
+      return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } })
+    }
+    status = 206
+  }
+
+  const headers = new Headers({
+    'Accept-Ranges': 'bytes',
+    'Content-Length': String(end - start + 1),
+    'Content-Type': 'audio/mp4',
+    'Cache-Control': 'private, max-age=3600',
+  })
+  if (status === 206) headers.set('Content-Range', `bytes ${start}-${end}/${stat.size}`)
+
+  if (request.method === 'HEAD') return new Response(null, { status, headers })
+
+  const stream = createReadStream(filePath, { start, end })
+  return new Response(Readable.toWeb(stream) as ReadableStream, { status, headers })
+}
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1440,
@@ -117,6 +246,9 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  previewDirectory = path.join(app.getPath('temp'), `trackforge-previews-${process.pid}`)
+  protocol.handle('trackforge-media', serveAudioPreview)
+
   ipcMain.handle('file:choose-input', async () => {
     const result = await dialog.showOpenDialog({
       title: '选择 MP4 文件',
@@ -137,6 +269,9 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('media:probe', async (_event, filePath: string) => probeMedia(filePath))
+
+  ipcMain.handle('media:prepare-audio-preview', async (_event, filePath: string, streamIndex: number) =>
+    createAudioPreview(filePath, streamIndex))
 
   ipcMain.handle('mux:start', async (event, request: MuxRequest) => {
     const binaryPath = ffmpegPath
@@ -230,4 +365,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  for (const process of jobs.values()) process.kill('SIGTERM')
+  for (const process of previewProcesses) process.kill('SIGTERM')
+  if (previewDirectory) void fs.rm(previewDirectory, { recursive: true, force: true })
 })
