@@ -44,6 +44,8 @@ type MuxRequest = {
   outputPath: string
   streamIndexes: number[]
   durationSeconds: number
+  trimStartSeconds: number
+  trimEndSeconds: number
 }
 
 const jobs = new Map<string, ChildProcessWithoutNullStreams>()
@@ -290,11 +292,23 @@ app.whenReady().then(() => {
       throw new Error('轨道选择已失效，请重新载入文件。')
     }
 
-    const args = ['-y', '-i', inputPath]
+    const sourceDuration = Number(media.format.duration) || request.durationSeconds || 0
+    const trimStart = Math.max(0, Number(request.trimStartSeconds) || 0)
+    const trimEnd = Math.max(0, Number(request.trimEndSeconds) || 0)
+    if (sourceDuration > 0 && trimStart + trimEnd >= sourceDuration) {
+      throw new Error('裁剪的时长已超过视频总长度，请调整前后删除的秒数。')
+    }
+    const keepDuration = sourceDuration > 0 ? sourceDuration - trimStart - trimEnd : 0
+
+    const args = ['-y']
+    if (trimStart > 0) args.push('-ss', trimStart.toFixed(3))
+    args.push('-i', inputPath)
+    if (trimEnd > 0 && keepDuration > 0) args.push('-t', keepDuration.toFixed(3))
     for (const index of request.streamIndexes) args.push('-map', `0:${index}`)
     args.push(
       '-map_metadata', '0',
       '-c', 'copy',
+      '-avoid_negative_ts', 'make_zero',
       '-movflags', '+faststart',
       '-progress', 'pipe:2',
       '-nostats',
@@ -306,6 +320,7 @@ app.whenReady().then(() => {
       jobs.set(request.jobId, process)
       let stderr = ''
       let progressBuffer = ''
+      const progressDuration = keepDuration > 0 ? keepDuration : request.durationSeconds
 
       process.stderr.on('data', (chunk) => {
         const text = chunk.toString()
@@ -315,8 +330,8 @@ app.whenReady().then(() => {
         progressBuffer = lines.pop() ?? ''
         for (const line of lines) {
           const [key, value] = line.split('=', 2)
-          if (key === 'out_time_us' && request.durationSeconds > 0) {
-            const percentage = Math.min(99, (Number(value) / 1_000_000 / request.durationSeconds) * 100)
+          if (key === 'out_time_us' && progressDuration > 0) {
+            const percentage = Math.min(99, (Number(value) / 1_000_000 / progressDuration) * 100)
             event.sender.send('mux:progress', { jobId: request.jobId, percentage })
           }
         }

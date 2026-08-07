@@ -17,6 +17,7 @@ import {
   Play,
   Plus,
   RotateCcw,
+  Scissors,
   Sparkles,
   Video,
   X,
@@ -89,6 +90,13 @@ function frameRate(raw?: string): string {
   return Number.isFinite(result) ? `${Number(result.toFixed(2))} fps` : ''
 }
 
+function sanitizeTrim(raw: string): string {
+  const cleaned = raw.replace(/[^\d.]/g, '')
+  const parts = cleaned.split('.')
+  const normalized = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : cleaned
+  return normalized.replace(/^0+(?=\d)/, '')
+}
+
 function displayLanguage(stream: MediaStream): string {
   const code = stream.tags?.language?.toLowerCase()
   return code ? languageNames[code] || code.toUpperCase() : '未标注'
@@ -113,12 +121,21 @@ function App() {
   const [outputPath, setOutputPath] = useState('')
   const [error, setError] = useState('')
   const [activeAudioIndex, setActiveAudioIndex] = useState<number | null>(null)
+  const [trimStart, setTrimStart] = useState('')
+  const [trimEnd, setTrimEnd] = useState('')
   const dragDepth = useRef(0)
 
   const videoStreams = media?.streams.filter((stream) => stream.codec_type === 'video') ?? []
   const audioStreams = media?.streams.filter((stream) => stream.codec_type === 'audio') ?? []
   const selectedVideoCount = videoStreams.filter((stream) => selected.has(stream.index)).length
   const selectedAudioCount = audioStreams.filter((stream) => selected.has(stream.index)).length
+
+  const sourceDuration = Number(media?.format.duration) || 0
+  const trimStartSeconds = Math.max(0, Number(trimStart) || 0)
+  const trimEndSeconds = Math.max(0, Number(trimEnd) || 0)
+  const keepDuration = sourceDuration - trimStartSeconds - trimEndSeconds
+  const hasTrim = trimStartSeconds > 0 || trimEndSeconds > 0
+  const trimInvalid = hasTrim && sourceDuration > 0 && keepDuration <= 0
 
   const inspectFile = useCallback(async (path: string) => {
     if (!path.toLowerCase().endsWith('.mp4')) {
@@ -134,6 +151,8 @@ function App() {
     setJobState('idle')
     setOutputPath('')
     setActiveAudioIndex(null)
+    setTrimStart('')
+    setTrimEnd('')
     try {
       const result = await window.trackforge.probeMedia(path)
       if (result.streams.length === 0) throw new Error('没有找到视频或音频轨道。')
@@ -178,6 +197,10 @@ function App() {
 
   const startMux = async () => {
     if (!media || selectedVideoCount === 0 || !window.trackforge) return
+    if (trimInvalid) {
+      setError('裁剪的时长已超过视频总长度，请调整前后删除的秒数。')
+      return
+    }
     setActiveAudioIndex(null)
     const path = await window.trackforge.chooseOutput(filePath)
     if (!path) return
@@ -194,6 +217,8 @@ function App() {
         outputPath: path,
         streamIndexes: media.streams.filter((stream) => selected.has(stream.index)).map((stream) => stream.index),
         durationSeconds: Number(media.format.duration) || 0,
+        trimStartSeconds,
+        trimEndSeconds,
       })
       setProgress(100)
       setJobState('success')
@@ -333,6 +358,53 @@ function App() {
               <div className="composition-row"><Music2 size={15} /><strong>{selectedAudioCount}</strong><span>条音频轨道</span></div>
             </div>
 
+            <div className="trim-section">
+              <div className="trim-heading"><Scissors size={15} /><strong>剪辑时长</strong><span>可选</span></div>
+              <div className="trim-inputs">
+                <label>
+                  <span>删除开头</span>
+                  <div className="trim-field">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={trimStart}
+                      onChange={(event) => setTrimStart(sanitizeTrim(event.target.value))}
+                      disabled={jobState === 'running'}
+                      aria-label="删除开头秒数"
+                    />
+                    <span className="trim-unit">秒</span>
+                  </div>
+                </label>
+                <label>
+                  <span>删除结尾</span>
+                  <div className="trim-field">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={trimEnd}
+                      onChange={(event) => setTrimEnd(sanitizeTrim(event.target.value))}
+                      disabled={jobState === 'running'}
+                      aria-label="删除结尾秒数"
+                    />
+                    <span className="trim-unit">秒</span>
+                  </div>
+                </label>
+              </div>
+              {trimInvalid ? (
+                <div className="trim-note invalid"><CircleAlert size={13} /><span>裁剪时长超过视频总长（{formatDuration(sourceDuration)}）。</span></div>
+              ) : hasTrim ? (
+                <div className="trim-note"><span>保留时长约 <strong>{formatDuration(keepDuration)}</strong>，按最近关键帧对齐，实际切点可能有微小偏差。</span></div>
+              ) : (
+                <div className="trim-note muted"><span>留空则保留完整时长。</span></div>
+              )}
+            </div>
+
             {selectedVideoCount === 0 && jobState !== 'running' && (
               <div className="inline-warning"><Info size={15} /><span>至少选择一条视频轨道。</span></div>
             )}
@@ -362,7 +434,7 @@ function App() {
                   <button className="text-button" onClick={() => { setJobState('idle'); setProgress(0); setError('') }}><RotateCcw size={15} />再次导出</button>
                 </>
               ) : (
-                <button className="primary-button export-button" onClick={startMux} disabled={selectedVideoCount === 0 || selected.size === 0}>
+                <button className="primary-button export-button" onClick={startMux} disabled={selectedVideoCount === 0 || selected.size === 0 || trimInvalid}>
                   <FileOutput size={17} />选择位置并合成<ChevronRight size={16} />
                 </button>
               )}

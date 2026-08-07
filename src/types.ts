@@ -34,6 +34,8 @@ export type MuxRequest = {
   outputPath: string
   streamIndexes: number[]
   durationSeconds: number
+  trimStartSeconds: number
+  trimEndSeconds: number
 }
 
 export type ProgressEvent = {
