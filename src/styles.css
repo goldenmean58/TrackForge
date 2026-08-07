@@ -153,6 +153,27 @@ button:focus-visible, input:focus-visible + .custom-check { outline: 3px solid r
 .composition-row:first-of-type svg { color: var(--video); }
 .composition-row:last-of-type svg { color: var(--audio); }
 .composition-row strong { color: var(--ink); font-size: 14px; }
+
+.trim-section { margin: 0 0 24px; padding-bottom: 21px; border-bottom: 1px solid var(--line); }
+.trim-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; color: var(--muted-strong); }
+.trim-heading svg { color: var(--accent); }
+.trim-heading strong { color: var(--ink); font-size: 12px; }
+.trim-heading span { margin-left: auto; color: var(--muted); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+.trim-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.trim-inputs label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.trim-inputs label > span { color: var(--muted); font-size: 10px; font-weight: 600; }
+.trim-field { display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: white; transition: border-color .15s, box-shadow .15s; }
+.trim-field:focus-within { border-color: #9fc8b6; box-shadow: 0 0 0 3px rgba(22, 124, 90, .12); }
+.trim-field input { width: 100%; min-width: 0; height: 36px; border: 0; outline: none; background: transparent; color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; }
+.trim-field input::-webkit-outer-spin-button, .trim-field input::-webkit-inner-spin-button { margin: 0; appearance: none; }
+.trim-field input:disabled { color: var(--muted); cursor: not-allowed; }
+.trim-unit { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
+.trim-note { display: flex; align-items: flex-start; gap: 6px; margin-top: 10px; color: var(--muted-strong); font-size: 10px; line-height: 1.5; }
+.trim-note svg { flex: 0 0 auto; margin-top: 1px; }
+.trim-note strong { color: var(--accent-dark); font-variant-numeric: tabular-nums; }
+.trim-note.muted { color: var(--muted); }
+.trim-note.invalid { color: #8e3838; }
+.trim-note.invalid svg { color: var(--danger); }
 .inline-warning, .panel-error { display: flex; align-items: flex-start; gap: 7px; padding: 10px; border-radius: 6px; font-size: 10px; line-height: 1.45; }
 .inline-warning { border: 1px solid #ecdbad; color: #785f28; background: #fdf7e7; }
 .panel-error { margin-top: 10px; border: 1px solid #ecc9c9; color: #8e3838; background: #fdf0f0; }
