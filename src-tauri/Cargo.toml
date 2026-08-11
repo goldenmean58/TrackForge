@@ -1,6 +1,6 @@
 [package]
 name = "trackforge"
-version = "0.2.0"
+version = "0.3.0"
 description = "Select and remux video and audio tracks from MP4 files."
 authors = ["TrackForge"]
 edition = "2021"
