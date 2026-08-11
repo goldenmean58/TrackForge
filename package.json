@@ -4,65 +4,32 @@
   "private": true,
   "description": "Select and remux video and audio tracks from MP4 files.",
   "author": "TrackForge",
-  "main": "dist-electron/main.js",
+  "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "dev": "tauri dev",
     "dev:web": "vite --host 127.0.0.1",
-    "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
-    "build": "vite build && tsc -p electron/tsconfig.json",
-    "package": "npm run build && electron-builder",
-    "package:mac": "npm run build && electron-builder --mac",
-    "package:win": "npm run build && electron-builder --win",
-    "package:linux": "npm run build && electron-builder --linux"
+    "sidecar": "node scripts/prepare-sidecar.mjs",
+    "typecheck": "tsc --noEmit",
+    "build": "vite build",
+    "tauri": "tauri"
   },
   "dependencies": {
-    "@ffprobe-installer/ffprobe": "^2.1.2",
-    "ffmpeg-static": "^5.2.0",
+    "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-dialog": "^2.2.0",
+    "@tauri-apps/plugin-opener": "^2.2.5",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "@tauri-apps/cli": "^2.1.0",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
-    "concurrently": "^9.1.2",
-    "cross-env": "^7.0.3",
-    "electron": "^43.1.1",
-    "electron-builder": "^26.15.3",
+    "ffmpeg-static": "^5.2.0",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5",
-    "wait-on": "^8.0.1"
-  },
-  "build": {
-    "appId": "com.trackforge.app",
-    "productName": "TrackForge",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
-    "directories": {
-      "output": "release"
-    },
-    "icon": "build/icon.png",
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "node_modules/**/*",
-      "package.json"
-    ],
-    "asarUnpack": [
-      "node_modules/ffmpeg-static/ffmpeg*",
-      "node_modules/@ffprobe-installer/**/*"
-    ],
-    "mac": {
-      "category": "public.app-category.video",
-      "target": ["dmg", "zip"]
-    },
-    "win": {
-      "target": "nsis"
-    },
-    "linux": {
-      "target": ["AppImage"],
-      "category": "AudioVideo"
-    }
+    "vite": "^6.0.5"
   }
 }

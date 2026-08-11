@@ -1,0 +1,28 @@
+[package]
+name = "trackforge"
+version = "0.2.0"
+description = "Select and remux video and audio tracks from MP4 files."
+authors = ["TrackForge"]
+edition = "2021"
+
+[lib]
+name = "trackforge_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
