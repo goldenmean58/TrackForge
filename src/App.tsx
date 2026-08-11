@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import {
   AudioLines,
   Check,
@@ -23,9 +24,12 @@ import {
   X,
 } from 'lucide-react'
 import { demoFilePath, demoMedia } from './demo'
+import { api } from './api'
 import type { MediaStream, ProbeResult, ProgressEvent } from './types'
 
 type JobState = 'idle' | 'running' | 'success' | 'error' | 'cancelled'
+
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
 const languageNames: Record<string, string> = {
   und: '未标注',
@@ -123,7 +127,6 @@ function App() {
   const [activeAudioIndex, setActiveAudioIndex] = useState<number | null>(null)
   const [trimStart, setTrimStart] = useState('')
   const [trimEnd, setTrimEnd] = useState('')
-  const dragDepth = useRef(0)
 
   const videoStreams = media?.streams.filter((stream) => stream.codec_type === 'video') ?? []
   const audioStreams = media?.streams.filter((stream) => stream.codec_type === 'audio') ?? []
@@ -142,7 +145,7 @@ function App() {
       setError('仅支持 MP4 文件，请重新选择。')
       return
     }
-    if (!window.trackforge) {
+    if (!isTauri) {
       setError('请在 TrackForge 桌面应用中选择本地文件。')
       return
     }
@@ -154,7 +157,7 @@ function App() {
     setTrimStart('')
     setTrimEnd('')
     try {
-      const result = await window.trackforge.probeMedia(path)
+      const result = await api.probeMedia(path)
       if (result.streams.length === 0) throw new Error('没有找到视频或音频轨道。')
       setMedia(result)
       setFilePath(path)
@@ -166,13 +169,16 @@ function App() {
     }
   }, [])
 
-  useEffect(() => window.trackforge?.onProgress((event: ProgressEvent) => {
-    if (event.jobId === jobId) setProgress(event.percentage)
-  }), [jobId])
+  useEffect(() => {
+    if (!isTauri) return
+    return api.onProgress((event: ProgressEvent) => {
+      if (event.jobId === jobId) setProgress(event.percentage)
+    })
+  }, [jobId])
 
   const chooseFile = async () => {
-    if (isDemo && !window.trackforge) return
-    const path = await window.trackforge?.chooseInput()
+    if (!isTauri) return
+    const path = await api.chooseInput()
     if (path) await inspectFile(path)
   }
 
@@ -196,13 +202,13 @@ function App() {
   }
 
   const startMux = async () => {
-    if (!media || selectedVideoCount === 0 || !window.trackforge) return
+    if (!media || selectedVideoCount === 0 || !isTauri) return
     if (trimInvalid) {
       setError('裁剪的时长已超过视频总长度，请调整前后删除的秒数。')
       return
     }
     setActiveAudioIndex(null)
-    const path = await window.trackforge.chooseOutput(filePath)
+    const path = await api.chooseOutput(filePath)
     if (!path) return
     const id = crypto.randomUUID()
     setJobId(id)
@@ -211,7 +217,7 @@ function App() {
     setError('')
     setOutputPath(path)
     try {
-      await window.trackforge.startMux({
+      await api.startMux({
         jobId: id,
         inputPath: filePath,
         outputPath: path,
@@ -230,29 +236,33 @@ function App() {
   }
 
   const cancelMux = async () => {
-    if (jobId) await window.trackforge?.cancelMux(jobId)
+    if (jobId) await api.cancelMux(jobId)
   }
 
-  const onDragEnter = (event: React.DragEvent) => {
-    event.preventDefault()
-    dragDepth.current += 1
-    setIsDragging(true)
-  }
-  const onDragLeave = (event: React.DragEvent) => {
-    event.preventDefault()
-    dragDepth.current -= 1
-    if (dragDepth.current <= 0) setIsDragging(false)
-  }
-  const onDrop = async (event: React.DragEvent) => {
-    event.preventDefault()
-    dragDepth.current = 0
-    setIsDragging(false)
-    const file = event.dataTransfer.files[0]
-    if (file && window.trackforge) await inspectFile(window.trackforge.getPathForFile(file))
-  }
+  useEffect(() => {
+    if (!isTauri) return
+    let disposed = false
+    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === 'enter' || event.payload.type === 'over') {
+        setIsDragging(true)
+      } else if (event.payload.type === 'leave') {
+        setIsDragging(false)
+      } else if (event.payload.type === 'drop') {
+        setIsDragging(false)
+        const path = event.payload.paths[0]
+        if (path) void inspectFile(path)
+      }
+    })
+    return () => {
+      disposed = true
+      void unlisten.then((fn) => {
+        if (disposed) fn()
+      })
+    }
+  }, [inspectFile])
 
   return (
-    <div className="app-shell" onDragEnter={onDragEnter} onDragOver={(event) => event.preventDefault()} onDragLeave={onDragLeave} onDrop={onDrop}>
+    <div className="app-shell">
       <header className="app-header">
         <div className="brand">
           <span className="brand-mark"><AudioLines size={19} strokeWidth={2.2} /></span>
@@ -430,7 +440,7 @@ function App() {
                 <button className="secondary-button danger" onClick={cancelMux}><X size={17} />取消任务</button>
               ) : jobState === 'success' ? (
                 <>
-                  <button className="primary-button" onClick={() => window.trackforge?.showItem(outputPath)}><FolderOpen size={17} />打开所在文件夹</button>
+                  <button className="primary-button" onClick={() => void api.showItem(outputPath)}><FolderOpen size={17} />打开所在文件夹</button>
                   <button className="text-button" onClick={() => { setJobState('idle'); setProgress(0); setError('') }}><RotateCcw size={15} />再次导出</button>
                 </>
               ) : (
@@ -573,13 +583,13 @@ function AudioPreview({ filePath, streamIndex, durationSeconds, isActive, onActi
 
   const prepare = async () => {
     if (source || preparationRef.current) return preparationRef.current
-    if (!window.trackforge) {
+    if (!isTauri) {
       setPreviewError('请在桌面应用中试听。')
       return
     }
     setIsLoading(true)
     setPreviewError('')
-    const task = window.trackforge.prepareAudioPreview(filePath, streamIndex)
+    const task = api.prepareAudioPreview(filePath, streamIndex)
       .then((preview) => {
         setSource(preview.url)
         if (preview.durationSeconds > 0) setDuration(preview.durationSeconds)

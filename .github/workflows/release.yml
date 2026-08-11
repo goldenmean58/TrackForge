@@ -31,28 +31,28 @@ jobs:
         include:
           - label: macOS ARM64
             runner: macos-latest
-            command: npm run package:mac -- --arm64 --publish never
+            target: aarch64-apple-darwin
             artifact: trackforge-macos-arm64
             files: |-
-              release/*.dmg
-              release/*.zip
+              src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           - label: macOS Intel
             runner: macos-15-intel
-            command: npm run package:mac -- --x64 --publish never
+            target: x86_64-apple-darwin
             artifact: trackforge-macos-x64
             files: |-
-              release/*.dmg
-              release/*.zip
+              src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           - label: Windows x64
             runner: windows-latest
-            command: npm run package:win -- --x64 --publish never
+            target: x86_64-pc-windows-msvc
             artifact: trackforge-windows-x64
-            files: release/*.exe
+            files: |-
+              src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
           - label: Linux x64
-            runner: ubuntu-latest
-            command: npm run package:linux -- --x64 --publish never
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
             artifact: trackforge-linux-x64
-            files: release/*.AppImage
+            files: |-
+              src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
 
     steps:
       - name: Check out source
@@ -64,6 +64,22 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |-
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
       - name: Validate release version
         shell: bash
         run: |-
@@ -72,11 +88,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --include=optional
 
+      - name: Prepare FFmpeg sidecar
+        run: npm run sidecar -- ${{ matrix.target }}
+
       - name: Type check
         run: npm run typecheck
 
-      - name: Package application
-        run: ${{ matrix.command }}
+      - name: Build application
+        run: npm run tauri build -- --target ${{ matrix.target }}
         env:
           GH_TOKEN: ${{ github.token }}
 

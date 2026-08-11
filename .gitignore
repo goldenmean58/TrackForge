@@ -1,6 +1,10 @@
 node_modules/
 dist/
-dist-electron/
 release/
 *.log
 .DS_Store
+
+# Tauri
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/gen/
