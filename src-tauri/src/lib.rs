@@ -176,7 +176,7 @@ async fn probe(app: &AppHandle, input: &Path) -> Result<ProbeResult, String> {
         &format!("开始读取媒体信息：{}", input.display()),
     );
     let input_str = input.to_string_lossy().to_string();
-    let command = app.shell().sidecar("binaries/ffprobe").map_err(|error| {
+    let command = app.shell().sidecar("ffprobe").map_err(|error| {
         let message = format!("无法加载 FFprobe sidecar：{error}");
         write_log(app, "ERROR", &message);
         message
@@ -310,7 +310,7 @@ async fn prepare_audio_preview(
 
     let output = app
         .shell()
-        .sidecar("binaries/ffmpeg")
+        .sidecar("ffmpeg")
         .map_err(|error| format!("无法启动 FFmpeg：{error}"))?
         .args(args)
         .output()
@@ -430,7 +430,7 @@ async fn start_mux(
 
     let (mut rx, child) = app
         .shell()
-        .sidecar("binaries/ffmpeg")
+        .sidecar("ffmpeg")
         .map_err(|error| format!("无法启动 FFmpeg：{error}"))?
         .args(args)
         .spawn()
