@@ -101,6 +101,11 @@ function sanitizeTrim(raw: string): string {
   return normalized.replace(/^0+(?=\d)/, '')
 }
 
+function errorMessage(cause: unknown, fallback: string): string {
+  const message = cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : ''
+  return message.replace(/^Error invoking remote method '[^']+': Error: /, '') || fallback
+}
+
 function displayLanguage(stream: MediaStream): string {
   const code = stream.tags?.language?.toLowerCase()
   return code ? languageNames[code] || code.toUpperCase() : '未标注'
@@ -163,7 +168,7 @@ function App() {
       setFilePath(path)
       setSelected(new Set(result.streams.map((stream) => stream.index)))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '读取文件失败。')
+      setError(errorMessage(cause, '读取文件失败。'))
     } finally {
       setIsInspecting(false)
     }
@@ -229,7 +234,7 @@ function App() {
       setProgress(100)
       setJobState('success')
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message.replace(/^Error invoking remote method '[^']+': Error: /, '') : '合成失败。'
+      const message = errorMessage(cause, '合成失败。')
       setError(message)
       setJobState(message.includes('已取消') ? 'cancelled' : 'error')
     }
@@ -595,9 +600,7 @@ function AudioPreview({ filePath, streamIndex, durationSeconds, isActive, onActi
         if (preview.durationSeconds > 0) setDuration(preview.durationSeconds)
       })
       .catch((cause) => {
-        const message = cause instanceof Error
-          ? cause.message.replace(/^Error invoking remote method '[^']+': Error: /, '')
-          : '无法准备试听。'
+        const message = errorMessage(cause, '无法准备试听。')
         setPreviewError(message)
         pendingPlayRef.current = false
         onActivate(null)
