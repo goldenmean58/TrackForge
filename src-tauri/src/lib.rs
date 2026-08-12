@@ -176,7 +176,7 @@ async fn probe(app: &AppHandle, input: &Path) -> Result<ProbeResult, String> {
         &format!("开始读取媒体信息：{}", input.display()),
     );
     let input_str = input.to_string_lossy().to_string();
-    let command = app.shell().sidecar("binaries/ffprobe").map_err(|error| {
+    let command = app.shell().sidecar("ffprobe").map_err(|error| {
         let message = format!("无法加载 FFprobe sidecar：{error}");
         write_log(app, "ERROR", &message);
         message
@@ -290,12 +290,12 @@ async fn prepare_audio_preview(
 
     std::fs::create_dir_all(&state.preview_dir).map_err(|error| error.to_string())?;
     let can_copy = stream.codec_name.as_deref() == Some("aac");
-    // 唯一 part 路径，避免同一 token 的并发请求写入同一临时文件。
+    // 保留 m4a 扩展名供 FFmpeg 识别容器，同时用唯一 part 路径隔离并发写入。
     static PART_SEQ: AtomicU64 = AtomicU64::new(0);
     let seq = PART_SEQ.fetch_add(1, Ordering::Relaxed);
     let part_path = state
         .preview_dir
-        .join(format!("{token}.{}.{seq}.part", std::process::id()));
+        .join(format!("{token}.{}.{seq}.part.m4a", std::process::id()));
     let input_str = input.to_string_lossy().to_string();
     let part_str = part_path.to_string_lossy().to_string();
     let map = format!("0:{stream_index}");
@@ -310,7 +310,7 @@ async fn prepare_audio_preview(
 
     let output = app
         .shell()
-        .sidecar("binaries/ffmpeg")
+        .sidecar("ffmpeg")
         .map_err(|error| format!("无法启动 FFmpeg：{error}"))?
         .args(args)
         .output()
@@ -430,7 +430,7 @@ async fn start_mux(
 
     let (mut rx, child) = app
         .shell()
-        .sidecar("binaries/ffmpeg")
+        .sidecar("ffmpeg")
         .map_err(|error| format!("无法启动 FFmpeg：{error}"))?
         .args(args)
         .spawn()
