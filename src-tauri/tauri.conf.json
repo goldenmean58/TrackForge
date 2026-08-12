@@ -4,9 +4,9 @@
   "version": "0.2.0",
   "identifier": "com.trackforge.app",
   "build": {
-    "beforeDevCommand": "npm run dev:web",
+    "beforeDevCommand": "npm run sidecar && npm run dev:web",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run sidecar && npm run build",
     "frontendDist": "../dist"
   },
   "app": {

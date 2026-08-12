@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -123,19 +125,63 @@ fn same_path(a: &Path, b: &Path) -> bool {
 fn sha256_hex(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
-    hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn parse_seconds(value: Option<&str>) -> Option<f64> {
     value.and_then(|raw| raw.trim().parse::<f64>().ok())
 }
 
+fn write_log(app: &AppHandle, level: &str, message: &str) {
+    let Ok(log_dir) = app.path().app_log_dir() else {
+        eprintln!("[{level}] {message}");
+        return;
+    };
+    if let Err(error) = std::fs::create_dir_all(&log_dir) {
+        eprintln!("无法创建日志目录 {}：{error}", log_dir.display());
+        return;
+    }
+    let timestamp_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    let log_path = log_dir.join("trackforge.log");
+    match OpenOptions::new().create(true).append(true).open(&log_path) {
+        Ok(mut file) => {
+            let sanitized = message.replace(['\r', '\n'], " ");
+            let _ = writeln!(file, "{timestamp_ms} [{level}] {sanitized}");
+        }
+        Err(error) => eprintln!("无法打开日志文件 {}：{error}", log_path.display()),
+    }
+}
+
 async fn probe(app: &AppHandle, input: &Path) -> Result<ProbeResult, String> {
+    let metadata = std::fs::metadata(input).map_err(|error| {
+        let message = format!("无法访问所选文件 {}：{error}", input.display());
+        write_log(app, "ERROR", &message);
+        message
+    })?;
+    if !metadata.is_file() {
+        let message = format!("所选路径不是文件：{}", input.display());
+        write_log(app, "ERROR", &message);
+        return Err(message);
+    }
+    write_log(
+        app,
+        "INFO",
+        &format!("开始读取媒体信息：{}", input.display()),
+    );
     let input_str = input.to_string_lossy().to_string();
-    let output = app
-        .shell()
-        .sidecar("binaries/ffprobe")
-        .map_err(|error| format!("无法启动 FFprobe：{error}"))?
+    let command = app.shell().sidecar("binaries/ffprobe").map_err(|error| {
+        let message = format!("无法加载 FFprobe sidecar：{error}");
+        write_log(app, "ERROR", &message);
+        message
+    })?;
+    let output = command
         .args([
             "-v",
             "error",
@@ -147,23 +193,45 @@ async fn probe(app: &AppHandle, input: &Path) -> Result<ProbeResult, String> {
         ])
         .output()
         .await
-        .map_err(|error| format!("无法启动 FFprobe：{error}"))?;
+        .map_err(|error| {
+            let message = format!("无法启动 FFprobe：{error}");
+            write_log(app, "ERROR", &message);
+            message
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let message = stderr.trim();
-        return Err(if message.is_empty() {
+        let message = if message.is_empty() {
             "无法读取该 MP4 文件。".into()
         } else {
             message.to_string()
-        });
+        };
+        write_log(
+            app,
+            "ERROR",
+            &format!("FFprobe 读取失败（状态 {:?}）：{message}", output.status),
+        );
+        return Err(message);
     }
 
-    let mut result: ProbeResult =
-        serde_json::from_slice(&output.stdout).map_err(|_| "无法解析媒体轨道信息。".to_string())?;
+    let mut result: ProbeResult = serde_json::from_slice(&output.stdout).map_err(|error| {
+        let message = format!("无法解析媒体轨道信息：{error}");
+        write_log(app, "ERROR", &message);
+        message
+    })?;
     result
         .streams
         .retain(|stream| stream.codec_type == "video" || stream.codec_type == "audio");
+    write_log(
+        app,
+        "INFO",
+        &format!(
+            "媒体信息读取完成：{}，{} 条轨道",
+            input.display(),
+            result.streams.len()
+        ),
+    );
     Ok(result)
 }
 
@@ -284,6 +352,16 @@ async fn start_mux(
     if state.children.lock().unwrap().contains_key(&request.job_id) {
         return Err("任务已经在运行。".into());
     }
+    write_log(
+        &app,
+        "INFO",
+        &format!(
+            "开始合成任务 {}：{} -> {}",
+            request.job_id,
+            input.display(),
+            output.display()
+        ),
+    );
 
     let media = probe(&app, &input).await?;
     let available: HashSet<i64> = media.streams.iter().map(|stream| stream.index).collect();
@@ -418,6 +496,7 @@ async fn start_mux(
                 percentage: 100.0,
             },
         );
+        write_log(&app, "INFO", &format!("合成任务 {} 完成", request.job_id));
         return Ok(MuxResult {
             output_path: output_str,
         });
@@ -425,14 +504,24 @@ async fn start_mux(
 
     let _ = std::fs::remove_file(&output);
     if was_cancelled {
+        write_log(&app, "INFO", &format!("合成任务 {} 已取消", request.job_id));
         return Err("任务已取消。".into());
     }
     let detail = tail_lines(lines.into_iter(), 4);
-    Err(if detail.is_empty() {
+    let message = if detail.is_empty() {
         "合成失败，请检查轨道格式。".into()
     } else {
         detail
-    })
+    };
+    write_log(
+        &app,
+        "ERROR",
+        &format!(
+            "合成任务 {} 失败（退出码 {:?}）：{message}",
+            request.job_id, exit_code
+        ),
+    );
+    Err(message)
 }
 
 #[tauri::command]
@@ -463,7 +552,7 @@ pub fn run() {
     let preview_dir =
         std::env::temp_dir().join(format!("trackforge-previews-{}", std::process::id()));
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -478,15 +567,18 @@ pub fn run() {
             cancel_mux
         ])
         .build(tauri::generate_context!())
-        .expect("error while running tauri application")
-        .run(move |app, event| {
-            if let tauri::RunEvent::Exit = event {
-                let state = app.state::<AppState>();
-                let mut children = state.children.lock().unwrap();
-                for (_, child) in children.drain() {
-                    let _ = child.kill();
-                }
-                let _ = std::fs::remove_dir_all(&state.preview_dir);
+        .expect("error while running tauri application");
+
+    write_log(app.handle(), "INFO", "TrackForge 启动");
+    app.run(move |app, event| {
+        if let tauri::RunEvent::Exit = event {
+            write_log(app, "INFO", "TrackForge 退出");
+            let state = app.state::<AppState>();
+            let mut children = state.children.lock().unwrap();
+            for (_, child) in children.drain() {
+                let _ = child.kill();
             }
-        });
+            let _ = std::fs::remove_dir_all(&state.preview_dir);
+        }
+    });
 }
